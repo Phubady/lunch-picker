@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lunch Picker - เที่ยงนี้กินอะไรดี?</title>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- สคริปต์ Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        // ==========================================
+        // นำ firebaseConfig ของคุณมาใส่ตรงนี้
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyAhPLZbggnJqyIkOgu765S2btiRaHiiSPo",
+  authDomain: "lunch-picker-app-2fa4f.firebaseapp.com",
+  projectId: "lunch-picker-app-2fa4f",
+  storageBucket: "lunch-picker-app-2fa4f.firebasestorage.app",
+  messagingSenderId: "484244962612",
+  appId: "1:484244962612:web:b84b9b3d1ab6ea17793961",
+  measurementId: "G-MCS4S40G2D"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        window.db = getFirestore(app);
+        const menusCollection = collection(window.db, "menus");
+
+        window.dailyMenus = []; 
+
+        const q = query(menusCollection, orderBy("timestamp", "desc"));
+        onSnapshot(q, (snapshot) => {
+            window.dailyMenus = [];
+            snapshot.forEach((document) => {
+                window.dailyMenus.push({ id: document.id, ...document.data() });
+            });
+            
+            // นำข้อมูลดิบมาประมวลผลจับคู่ วัตถุดิบ -> เมนูตามสั่ง
+            window.processedMenus = window.generateVirtualMenus(window.dailyMenus);
+            
+            window.updateMenu();
+            if(window.currentMode === 'vendor'){
+                window.renderAllMenusForVendor();
+            }
+        });
+
+        window.saveMenuToFirebase = async function(menuData) {
+            try {
+                menuData.timestamp = new Date(); 
+                await addDoc(menusCollection, menuData);
+                return true;
+            } catch (e) {
+                console.error(e);
+                return false;
+            }
+        }
+
+        window.deleteMenu = async function(id) {
+            if(confirm('คุณแน่ใจหรือไม่ที่จะลบข้อมูลนี้ออกจากระบบ?')) {
+                try {
+                    await deleteDoc(doc(window.db, "menus", id));
+                } catch (e) {
+                    alert("ลบไม่สำเร็จ: " + e.message);
+                }
+            }
+        }
+    </script>
+
+    <style>
+        :root { --primary: #ff6b81; --secondary: #ffa502; --vendor-color: #1e90ff; --bg-color: #f4f7fe; --card-bg: #ffffff; --text-dark: #2f3542; --text-light: #747d8c; }
+        body { font-family: 'Kanit', sans-serif;
+        background-image: linear-gradient(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.7)), url('foodbg.PNG');
+    background-size: cover;       /* ขยายรูปให้เต็มพอดีหน้าจอ */
+    background-position: center;  /* จัดให้อยู่กึ่งกลาง */
+    background-attachment: fixed; /* ล็อกรูปไว้ไม่ให้เลื่อนตามเวลาเราเลื่อนดูเมนู */
+    background-repeat: no-repeat; /* ไม่ให้รูปต่อกันเป็นแผ่นกระเบื้อง */
+        background-color: var(--bg-color); color: var(--text-dark); margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .container { max-width: 850px; width: 100%; }
+        h1 { text-align: center; font-weight: 600; color: var(--text-dark); margin-bottom: 30px; }
+        .tab-container { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; margin-bottom: 25px; }
+        .tab-btn { padding: 12px 24px; border: none; border-radius: 30px; font-size: 16px; font-family: 'Kanit', sans-serif; cursor: pointer; font-weight: 500; background-color: #ffffff; color: var(--text-light); box-shadow: 0 4px 6px rgba(0,0,0,0.02); transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); }
+        .tab-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 12px rgba(0,0,0,0.05); }
+        .tab-btn.active[data-mode="alacarte"] { background-color: var(--primary); color: white; box-shadow: 0 6px 15px rgba(255, 107, 129, 0.3); }
+        .tab-btn.active[data-mode="curry"] { background-color: var(--secondary); color: white; box-shadow: 0 6px 15px rgba(255, 165, 2, 0.3); }
+        .tab-btn.active[data-mode="vendor"] { background-color: var(--vendor-color); color: white; box-shadow: 0 6px 15px rgba(30, 144, 255, 0.3); }
+        .view-content { display: none; animation: fadeIn 0.4s ease-in-out; }
+        .view-content.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+        .section-card { background: var(--card-bg); border-radius: 16px; padding: 25px; margin-bottom: 25px; box-shadow: 0 10px 20px rgba(0,0,0,0.03); transition: border-color 0.3s; border-top: 4px solid transparent; }
+        .section-card h3 { margin-top: 0; font-weight: 500; }
+        .filter-group, .form-group { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 15px; margin-bottom: 20px; }
+        .filter-item input, .form-item input { display: none; }
+        .filter-item label, .form-item label { display: inline-block;
+            padding: 8px 18px; background-color: #f1f2f6; border-radius: 20px; font-size: 14px; cursor: pointer; transition: all 0.2s ease; user-select: none; color: var(--text-dark); border: 1px solid transparent; }
+        .filter-item label:hover, .form-item label:hover { background-color: #dfe4ea; }
+        .filter-item input[type="checkbox"]:checked + label { background-color: var(--primary); color: white; box-shadow: 0 4px 10px rgba(255, 107, 129, 0.3); }
+        .form-item input[type="checkbox"]:checked + label { background-color: var(--vendor-color); color: white; box-shadow: 0 4px 10px rgba(30, 144, 255, 0.3); }
+        .form-item input[type="radio"]:checked + label { background-color: var(--vendor-color); color: white; box-shadow: 0 4px 10px rgba(30, 144, 255, 0.3); }
+        input[type="text"], select { font-family: 'Kanit', sans-serif; padding: 12px 16px; border-radius: 10px; border: 1px solid #dfe4ea; font-size: 15px; width: 100%; max-width: 300px; outline: none; transition: border-color 0.2s; box-sizing: border-box; }
+        input[type="text"]:focus, select:focus { border-color: var(--vendor-color); }
+        button.action-btn { font-family: 'Kanit', sans-serif; padding: 12px 24px; border-radius: 10px; border: none; font-size: 16px; cursor: pointer; font-weight: 500; color: white; transition: transform 0.2s, box-shadow 0.2s; }
+        button.action-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 15px rgba(0,0,0,0.1); }
+        .btn-vendor { background-color: var(--vendor-color); width: 100%; margin-top: 15px; font-size: 18px; }
+        .btn-delete { background-color: #ff4757; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-family: 'Kanit'; font-size: 13px; transition: 0.2s; margin-top: 10px; width: 100%; }
+        .btn-delete:hover { background-color: #ff6b81; }
+        .menu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px; margin-top: 20px; }
+        .menu-card { border: 1px solid #f1f2f6; border-radius: 12px; padding: 20px; background: #ffffff; box-shadow: 0 4px 10px rgba(0,0,0,0.02); transition: transform 0.2s; }
+        .menu-card:hover { transform: translateY(-3px); box-shadow: 0 8px 15px rgba(0,0,0,0.05); }
+        .menu-card h4 { margin: 0 0 12px 0; font-size: 17px; color: var(--text-dark); }
+        .badge-group { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+        .tag { font-size: 11px; padding: 4px 10px; border-radius: 20px; font-weight: 500; }
+        .tag-vendor { background: #e0f7fa; color: #00838f; }
+        .tag-feature { background: #f1f2f6; color: #57606f; }
+        .tag-alert { background: #ffefef; color: #ff4757; }
+        .tag-category { background: #fff2cc; color: #d35400; }
+        .wheel-container { text-align: center; }
+        .wheel-box { width: 280px; height: 280px; border-radius: 50%; border: 6px solid #f1f2f6; margin: 0 auto 25px auto; position: relative; background: conic-gradient(#ff6b81 0deg 90deg, #ffa502 90deg 180deg, #2ed573 180deg 270deg, #1e90ff 270deg 360deg); transition: transform 3s cubic-bezier(0.17, 0.67, 0.12, 0.99); box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
+        .wheel-pointer { position: absolute; top: -20px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 18px solid transparent; border-right: 18px solid transparent; border-top: 30px solid #2f3542; z-index: 10; }
+        .result-display { font-size: 24px; font-weight: 600; color: var(--primary); min-height: 40px; margin-top: 20px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>✨ เที่ยงนี้กินไรดี ? ✨</h1>
+
+    <div class="tab-container">
+        <button class="tab-btn active" data-mode="alacarte" onclick="switchMode('alacarte')">🍳 สุ่มอาหารตามสั่ง</button>
+        <button class="tab-btn" data-mode="curry" onclick="switchMode('curry')">🍛 สุ่มข้าวราดแกง</button>
+        <button class="tab-btn" data-mode="vendor" onclick="switchMode('vendor')">👨‍🍳 มุมร้านค้า</button>
+    </div>
+
+    <!-- ==================== ฝั่งลูกค้า ==================== -->
+    <div id="customerView" class="view-content active">
+        <div class="section-card" id="filterCard" style="border-top-color: var(--primary);">
+            <h3 id="modeTitle">🎯 ตัวกรองอาหาร: ตามใจคุณ</h3>
+            
+            <div class="filter-group">
+                <div class="filter-item"><input type="checkbox" id="noSpicy" onchange="updateMenu()"><label for="noSpicy">ไม่กินเผ็ด 🌶️</label></div>
+                <div class="filter-item" id="noodleFilterWrapper"><input type="checkbox" id="noNoodle" onchange="updateMenu()"><label for="noNoodle">ไม่เอาเส้น 🍜</label></div>
+                <div class="filter-item"><input type="checkbox" id="onlySoup" onchange="updateMenu()"><label for="onlySoup">เฉพาะเมนูน้ำ 🍲</label></div>
+                <div class="filter-item"><input type="checkbox" id="onlyDry" onchange="updateMenu()"><label for="onlyDry">เฉพาะผัดแห้ง 🥘</label></div>
+            </div>
+
+            <div class="filter-group">
+                <div style="width: 100%; font-size: 14px; color: var(--text-light);">ตัวกรองผัก:</div>
+                <div class="filter-item"><input type="checkbox" id="noVeggie" onchange="updateMenu()"><label for="noVeggie">ไม่ใส่ผักเลย 🚫🥬</label></div>
+                <div class="filter-item"><input type="checkbox" id="noBasil" onchange="updateMenu()"><label for="noBasil">ไม่กินกะเพรา 🌿</label></div>
+                <div class="filter-item"><input type="checkbox" id="noKale" onchange="updateMenu()"><label for="noKale">ไม่กินคะน้า 🥬</label></div>
+                <div class="filter-item"><input type="checkbox" id="noCabbage" onchange="updateMenu()"><label for="noCabbage">ไม่กินกะหล่ำ 🥗</label></div>
+                <div class="filter-item"><input type="checkbox" id="noChineseCabbage" onchange="updateMenu()"><label for="noChineseCabbage">ไม่กินผักกาดขาว 🥬</label></div>
+                <div class="filter-item"><input type="checkbox" id="noMorningGlory" onchange="updateMenu()"><label for="noMorningGlory">ไม่กินผักบุ้ง 🌿</label></div>
+            </div>
+
+            <div class="filter-group">
+                <div style="width: 100%; font-size: 14px; color: var(--text-light);">เนื้อสัตว์ที่แพ้ / ไม่ทาน:</div>
+                <div class="filter-item"><input type="checkbox" id="noPork" onchange="updateMenu()"><label for="noPork">ไม่กินหมู 🐷</label></div>
+                <div class="filter-item"><input type="checkbox" id="noChicken" onchange="updateMenu()"><label for="noChicken">ไม่กินไก่ 🐔</label></div>
+                <div class="filter-item"><input type="checkbox" id="noSeafood" onchange="updateMenu()"><label for="noSeafood">แพ้อาหารทะเล 🦐</label></div>
+            </div>
+
+            <div class="filter-group" style="margin-top: 20px;">
+                <div style="display: flex; align-items: center; gap: 10px; width: 100%;">
+                    <label for="vendorFilter" style="font-weight: 500;">เลือกร้าน:</label>
+                    <select id="vendorFilter" onchange="updateMenu()" style="max-width: 250px;">
+                        <option value="all">ทุกร้านในหมวดนี้</option>
+                        <option value="ร้านป้าสมทรง">ร้านป้าสมทรง</option>
+                        <option value="ร้านลุงหนวด">ร้านลุงหนวด</option>
+                        <option value="ร้านข้าวแกงแม่มะลิ">ร้านข้าวแกงแม่มะลิ</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="section-card wheel-container" id="wheelCard" style="border-top-color: var(--primary);">
+            <h3>🎡 คิดไม่ออก สุ่มเลย!</h3>
+            <div style="position: relative; display: inline-block; margin-top: 10px;">
+                <div class="wheel-pointer"></div>
+                <div class="wheel-box" id="wheel"></div>
+            </div>
+            <br>
+            <button class="action-btn" id="spinBtn" style="background-color: var(--primary);" onclick="spinWheel()">หมุนวงล้อสุ่มเมนู</button>
+            <div class="result-display" id="spinResult"></div>
+        </div>
+
+        <div class="section-card">
+            <h3>📋 รายการเมนูที่เป็นไปได้ในกล่องสุ่ม (<span id="menuCount">0</span> เมนู)</h3>
+            <div class="menu-grid" id="menuGrid">
+                <div style="text-align: center; grid-column: 1 / -1; color: var(--text-light);">⏳ กำลังโหลดเมนูจากฐานข้อมูล...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== ฝั่งร้านค้า ==================== -->
+    <div id="vendorView" class="view-content">
+        <div class="section-card" style="border-top-color: var(--vendor-color);">
+            <h3 style="color: var(--vendor-color);">📝 จัดการร้านค้า / อัปเดตวัตถุดิบ</h3>
+            <form id="vendorForm" onsubmit="addNewMenu(event)">
+                
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: 500;">เลือกร้านของคุณ:</label>
+                    <select id="newVendorName" required>
+                        <option value="ร้านป้าสมทรง">ร้านป้าสมทรง</option>
+                        <option value="ร้านลุงหนวด">ร้านลุงหนวด</option>
+                        <option value="ร้านข้าวแกงแม่มะลิ">ร้านข้าวแกงแม่มะลิ</option>
+                    </select>
+                </div>
+
+                <div class="form-group" style="background: #f8f9fa; padding: 15px; border-radius: 12px; border: 1px solid #eee;">
+                    <div style="width: 100%; font-weight: 500; margin-bottom: 5px;">หมวดหมู่หลัก:</div>
+                    <div class="form-item"><input type="radio" id="catAla" name="newCategory" value="alacarte" onchange="toggleVendorForm()" checked><label for="catAla">🍳 อาหารตามสั่ง (ให้ระบบสุ่มเมนูจากวัตถุดิบที่คุณมี)</label></div>
+                    <div class="form-item"><input type="radio" id="catCurry" name="newCategory" value="curry" onchange="toggleVendorForm()"><label for="catCurry">🍛 ข้าวราดแกง / เมนูเฉพาะกิจ</label></div>
+                </div>
+
+                <!-- ส่วนนี้จะแสดงเฉพาะเมื่อเลือก ข้าวราดแกง -->
+                <div id="curryOnlySection" style="display: none;">
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 500;">ชื่อเมนู:</label>
+                        <input type="text" id="newMenuName" placeholder="เช่น แกงเขียวหวานไก่, พะแนงหมู">
+                    </div>
+                    <div class="form-group">
+                        <div style="width: 100%; font-weight: 500;">ลักษณะอาหาร:</div>
+                        <div class="form-item"><input type="checkbox" id="newIsSpicy"><label for="newIsSpicy">รสจัด/เผ็ด 🌶️</label></div>
+                        <div class="form-item"><input type="checkbox" id="newIsNoodle"><label for="newIsNoodle">เป็นเมนูเส้น 🍜</label></div>
+                        <div class="form-item"><input type="checkbox" id="newIsSoup"><label for="newIsSoup">เมนูน้ำ 🍲</label></div>
+                        <div class="form-item"><input type="checkbox" id="newIsDry"><label for="newIsDry">เมนูผัดแห้ง 🥘</label></div>
+                    </div>
+                </div>
+
+                <!-- วัตถุดิบ (แสดงทั้งตามสั่งและข้าวแกง แต่ Label จะเปลี่ยนตามโหมด) -->
+                <div class="form-group" style="margin-top: 25px;">
+                    <div id="meatLabel" style="width: 100%; font-weight: 500;">เนื้อสัตว์ที่มีในร้านวันนี้:</div>
+                    <div class="form-item"><input type="checkbox" id="meat1" value="pork" class="newMeat"><label for="meat1">หมู 🐷</label></div>
+                    <div class="form-item"><input type="checkbox" id="meat2" value="chicken" class="newMeat"><label for="meat2">ไก่ 🐔</label></div>
+                    <div class="form-item"><input type="checkbox" id="meat3" value="seafood" class="newMeat"><label for="meat3">ทะเล 🦐</label></div>
+                    <div class="form-item"><input type="checkbox" id="meat4" value="beef" class="newMeat"><label for="meat4">เนื้อวัว 🥩</label></div>
+                    <div class="form-item"><input type="checkbox" id="meat5" value="crispy_pork" class="newMeat"><label for="meat5">หมูกรอบ 🥓</label></div>
+                </div>
+
+                <div class="form-group">
+                    <div id="veggieLabel" style="width: 100%; font-weight: 500;">ผักที่มีในร้านวันนี้:</div>
+                    <div class="form-item"><input type="checkbox" id="veg1" value="basil" class="newVeggie"><label for="veg1">ใบกะเพรา 🌿</label></div>
+                    <div class="form-item"><input type="checkbox" id="veg2" value="kale" class="newVeggie"><label for="veg2">คะน้า 🥬</label></div>
+                    <div class="form-item"><input type="checkbox" id="veg3" value="cabbage" class="newVeggie"><label for="veg3">กะหล่ำปลี 🥗</label></div>
+                    <div class="form-item"><input type="checkbox" id="veg4" value="chinese_cabbage" class="newVeggie"><label for="veg4">ผักกาดขาว 🥬</label></div>
+                    <div class="form-item"><input type="checkbox" id="veg5" value="morning_glory" class="newVeggie"><label for="veg5">ผักบุ้ง 🌿</label></div>
+                </div>
+
+                <button type="submit" class="action-btn btn-vendor" id="submitBtn">➕ บันทึกข้อมูลลงระบบ</button>
+            </form>
+        </div>
+
+        <div class="section-card">
+            <h3>🗂️ ฐานข้อมูล / วัตถุดิบปัจจุบันของแต่ละร้าน</h3>
+            <div class="menu-grid" id="allMenuGrid"></div>
+        </div>
+    </div>
+</div>
+
+<!-- สคริปต์การทำงานของแอป -->
+<script>
+    window.currentMode = 'alacarte'; 
+    window.filteredMenus = [];
+    window.processedMenus = [];
+    let currentRotation = 0;
+
+    // ฐานข้อมูลเมนูที่จะนำไปสุ่มผสมกับวัตถุดิบ (Matrix)
+    window.aLaCarteMethods = [
+        { method: "ข้าวกะเพรา", reqVeg: "basil", isSpicy: true, isNoodle: false, isSoup: false, isDry: true },
+        { method: "ข้าวทอดกระเทียม", reqVeg: null, isSpicy: false, isNoodle: false, isSoup: false, isDry: true },
+        { method: "ข้าวผัด", reqVeg: null, isSpicy: false, isNoodle: false, isSoup: false, isDry: true },
+        { method: "ผัดมาม่า", reqVeg: "cabbage", isSpicy: false, isNoodle: true, isSoup: false, isDry: true },
+        { method: "สุกี้แห้ง", reqVeg: "chinese_cabbage", isSpicy: true, isNoodle: true, isSoup: false, isDry: true },
+        { method: "สุกี้น้ำ", reqVeg: "chinese_cabbage", isSpicy: true, isNoodle: true, isSoup: true, isDry: false },
+        { method: "ผัดซีอิ๊ว", reqVeg: "kale", isSpicy: false, isNoodle: true, isSoup: false, isDry: true },
+        { method: "ราดหน้า", reqVeg: "kale", isSpicy: false, isNoodle: true, isSoup: true, isDry: false },
+        { method: "ข้าวผัดพริกแกง", reqVeg: null, isSpicy: true, isNoodle: false, isSoup: false, isDry: true },
+        { method: "ข้าวผัดผักบุ้ง", reqVeg: "morning_glory", isSpicy: true, isNoodle: false, isSoup: false, isDry: true }
+    ];
+
+    window.generateVirtualMenus = function(rawDocs) {
+        let result = [];
+        rawDocs.forEach(doc => {
+            if (doc.category === 'curry') {
+                result.push({...doc});
+            } else if (doc.category === 'alacarte') {
+                const meats = doc.meat || [];
+                const veggies = doc.veggie || [];
+                
+                meats.forEach(meat => {
+                    window.aLaCarteMethods.forEach(method => {
+                        if (method.reqVeg && !veggies.includes(method.reqVeg)) return;
+                        
+                        let meatName = meat==='pork'?'หมู':meat==='chicken'?'ไก่':meat==='seafood'?'ทะเล':meat==='beef'?'เนื้อ':'หมูกรอบ';
+                        let menuName = `${method.method}${meatName}`;
+                        
+                        result.push({
+                            id: doc.id + '_' + menuName,
+                            name: menuName,
+                            vendor: doc.vendor,
+                            category: 'alacarte',
+                            isSpicy: method.isSpicy,
+                            isNoodle: method.isNoodle,
+                            isSoup: method.isSoup,
+                            isDry: method.isDry,
+                            meat: [meat],
+                            veggie: method.reqVeg ? [method.reqVeg] : [],
+                            isVirtual: true
+                        });
+                    });
+                });
+            }
+        });
+        return result;
+    }
+
+    // เปิดปิดฟอร์มและปรับข้อความ Label
+    window.toggleVendorForm = function() {
+        const isAla = document.getElementById('catAla').checked;
+        document.getElementById('curryOnlySection').style.display = isAla ? 'none' : 'block';
+        
+        // ปรับ Label ตามหมวดหมู่ที่ถูกเลือก
+        document.getElementById('meatLabel').innerText = isAla ? "เนื้อสัตว์ที่มีในร้านวันนี้:" : "เนื้อสัตว์ที่ใส่ในเมนูนี้:";
+        document.getElementById('veggieLabel').innerText = isAla ? "ผักที่มีในร้านวันนี้:" : "ผักที่ใส่ในเมนูนี้:";
+    }
+
+    window.switchMode = function(mode) {
+        window.currentMode = mode;
+        
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelector(`.tab-btn[data-mode="${mode}"]`).classList.add('active');
+
+        const customerView = document.getElementById('customerView');
+        const vendorView = document.getElementById('vendorView');
+        const modeTitle = document.getElementById('modeTitle');
+        const filterCard = document.getElementById('filterCard');
+        const wheelCard = document.getElementById('wheelCard');
+        const spinBtn = document.getElementById('spinBtn');
+        const resultDisplay = document.getElementById('spinResult');
+
+        resultDisplay.innerHTML = '';
+        const cssRoot = document.documentElement;
+
+        if (mode === 'vendor') {
+            customerView.classList.remove('active');
+            vendorView.classList.add('active');
+            window.renderAllMenusForVendor();
+        } else {
+            vendorView.classList.remove('active');
+            customerView.classList.add('active');
+            
+            if (mode === 'alacarte') {
+                modeTitle.innerText = "🎯 ตัวกรอง: อาหารตามสั่ง";
+                filterCard.style.borderTopColor = "var(--primary)";
+                wheelCard.style.borderTopColor = "var(--primary)";
+                spinBtn.style.backgroundColor = "var(--primary)";
+                resultDisplay.style.color = "var(--primary)";
+                document.getElementById('noodleFilterWrapper').style.display = 'block'; 
+                cssRoot.style.setProperty('--primary', '#ff6b81'); 
+            } else if (mode === 'curry') {
+                modeTitle.innerText = "🎯 ตัวกรอง: ข้าวราดแกง";
+                filterCard.style.borderTopColor = "var(--secondary)";
+                wheelCard.style.borderTopColor = "var(--secondary)";
+                spinBtn.style.backgroundColor = "var(--secondary)";
+                resultDisplay.style.color = "var(--secondary)";
+                
+                document.getElementById('noNoodle').checked = false;
+                document.getElementById('noodleFilterWrapper').style.display = 'none';
+                cssRoot.style.setProperty('--primary', '#ffa502'); 
+            }
+            window.updateMenu();
+        }
+    }
+
+    window.updateMenu = function() {
+        const dataSource = window.processedMenus || [];
+        
+        const noSpicy = document.getElementById('noSpicy').checked;
+        const noNoodle = document.getElementById('noNoodle').checked;
+        const onlySoup = document.getElementById('onlySoup').checked;
+        const onlyDry = document.getElementById('onlyDry').checked;
+        
+        const noVeggie = document.getElementById('noVeggie').checked;
+        const noBasil = document.getElementById('noBasil').checked;
+        const noKale = document.getElementById('noKale').checked;
+        const noCabbage = document.getElementById('noCabbage').checked;
+        const noChineseCabbage = document.getElementById('noChineseCabbage').checked;
+        const noMorningGlory = document.getElementById('noMorningGlory').checked;
+
+        const noPork = document.getElementById('noPork').checked;
+        const noChicken = document.getElementById('noChicken').checked;
+        const noSeafood = document.getElementById('noSeafood').checked;
+        const vendorFilter = document.getElementById('vendorFilter').value;
+
+        window.filteredMenus = dataSource.filter(menu => {
+            if (menu.category !== window.currentMode) return false; 
+            
+            if (noSpicy && menu.isSpicy) return false;
+            if (noNoodle && menu.isNoodle) return false;
+            if (onlySoup && !menu.isSoup) return false;
+            if (onlyDry && !menu.isDry) return false;
+
+            if (noPork && menu.meat.includes("pork")) return false;
+            if (noChicken && menu.meat.includes("chicken")) return false;
+            if (noSeafood && menu.meat.includes("seafood")) return false;
+            
+            const hasVeggie = menu.veggie && menu.veggie.length > 0;
+            if (noVeggie && hasVeggie) return false;
+            if (noBasil && hasVeggie && menu.veggie.includes("basil")) return false;
+            if (noKale && hasVeggie && menu.veggie.includes("kale")) return false;
+            if (noCabbage && hasVeggie && menu.veggie.includes("cabbage")) return false;
+            if (noChineseCabbage && hasVeggie && menu.veggie.includes("chinese_cabbage")) return false;
+            if (noMorningGlory && hasVeggie && menu.veggie.includes("morning_glory")) return false;
+
+            if (vendorFilter !== "all" && menu.vendor !== vendorFilter) return false;
+            return true;
+        });
+
+        window.renderMenusForCustomer();
+    }
+
+    window.renderMenusForCustomer = function() {
+        const grid = document.getElementById('menuGrid');
+        grid.innerHTML = '';
+        document.getElementById('menuCount').innerText = window.filteredMenus.length;
+
+        if (window.filteredMenus.length === 0) {
+            grid.innerHTML = '<div style="color: var(--text-light); text-align: center; grid-column: 1 / -1; padding: 20px;">ไม่มีเมนูที่ตรงกับเงื่อนไข หรือยังไม่มีร้านค้าอัปเดตวัตถุดิบ 😢</div>';
+            return;
+        }
+
+        window.filteredMenus.forEach(menu => {
+            const card = document.createElement('div');
+            card.className = 'menu-card';
+            
+            let tagsHTML = `<span class="tag tag-vendor">📍 ${menu.vendor}</span>`;
+            if (menu.isSpicy) tagsHTML += `<span class="tag tag-alert">🌶️ เผ็ด</span>`;
+            if (menu.isNoodle) tagsHTML += `<span class="tag tag-feature">🍜 เส้น</span>`;
+            if (menu.isSoup) tagsHTML += `<span class="tag tag-feature">🍲 น้ำ</span>`;
+            if (menu.isDry) tagsHTML += `<span class="tag tag-feature">🥘 ผัดแห้ง</span>`;
+
+            card.innerHTML = `<h4>${menu.name}</h4><div class="badge-group">${tagsHTML}</div>`;
+            grid.appendChild(card);
+        });
+    }
+
+    window.addNewMenu = async function(event) {
+        event.preventDefault();
+        const submitBtn = document.getElementById('submitBtn');
+        
+        const vendor = document.getElementById('newVendorName').value;
+        const category = document.querySelector('input[name="newCategory"]:checked').value;
+        
+        const meatCheckboxes = document.querySelectorAll('.newMeat:checked');
+        const meat = Array.from(meatCheckboxes).map(cb => cb.value);
+        
+        const veggieCheckboxes = document.querySelectorAll('.newVeggie:checked');
+        const veggie = Array.from(veggieCheckboxes).map(cb => cb.value);
+
+        if (meat.length === 0 && veggie.length === 0 && category === 'alacarte') {
+            alert("กรุณาเลือกเนื้อสัตว์หรือผักอย่างน้อย 1 อย่างครับ");
+            return;
+        }
+
+        const newMenuData = { vendor, category, meat, veggie };
+
+        if (category === 'curry') {
+            newMenuData.name = document.getElementById('newMenuName').value;
+            if(!newMenuData.name) return alert("กรุณากรอกชื่อเมนูข้าวราดแกง");
+            newMenuData.isSpicy = document.getElementById('newIsSpicy').checked;
+            newMenuData.isNoodle = document.getElementById('newIsNoodle').checked;
+            newMenuData.isSoup = document.getElementById('newIsSoup').checked;
+            newMenuData.isDry = document.getElementById('newIsDry').checked;
+        }
+
+        submitBtn.innerText = "กำลังบันทึก...";
+        submitBtn.disabled = true;
+
+        if(window.saveMenuToFirebase) {
+            const success = await window.saveMenuToFirebase(newMenuData);
+            if(success){
+                alert(`✅ บันทึกข้อมูลสำเร็จ!`);
+                document.getElementById('vendorForm').reset();
+                window.toggleVendorForm();
+            } else {
+                alert("❌ เกิดข้อผิดพลาด กรุณาตรวจสอบ Firebase");
+            }
+        }
+        submitBtn.innerText = "➕ บันทึกข้อมูลลงระบบ";
+        submitBtn.disabled = false;
+    }
+
+    window.renderAllMenusForVendor = function() {
+        const grid = document.getElementById('allMenuGrid');
+        grid.innerHTML = '';
+        
+        const dataSource = window.dailyMenus || [];
+        
+        if (dataSource.length === 0) {
+            grid.innerHTML = '<div style="color: var(--text-light); text-align: center; grid-column: 1 / -1; padding: 20px;">ยังไม่มีข้อมูลในระบบ</div>';
+            return;
+        }
+
+        const dictMeat = {pork:'หมู', chicken:'ไก่', seafood:'ทะเล', beef:'เนื้อวัว', crispy_pork:'หมูกรอบ'};
+        const dictVeggie = {basil:'กะเพรา', kale:'คะน้า', cabbage:'กะหล่ำปลี', chinese_cabbage:'ผักกาดขาว', morning_glory:'ผักบุ้ง'};
+
+        dataSource.forEach(doc => {
+            const card = document.createElement('div');
+            card.className = 'menu-card';
+            card.style.borderTop = "4px solid var(--vendor-color)";
+            
+            let title = doc.category === 'alacarte' ? `วัตถุดิบอาหารตามสั่ง` : doc.name;
+            const catLabel = doc.category === 'alacarte' ? '🍳 ตามสั่ง' : '🍛 ราดแกง';
+            
+            const meatText = doc.meat && doc.meat.length > 0 ? doc.meat.map(m => dictMeat[m]).join(', ') : 'ไม่มี';
+            const vegText = doc.veggie && doc.veggie.length > 0 ? doc.veggie.map(v => dictVeggie[v]).join(', ') : 'ไม่มี';
+
+            card.innerHTML = `
+                <h4 style="margin-bottom: 5px;">${title}</h4>
+                <div class="badge-group" style="margin-top:0; margin-bottom:10px;">
+                    <span class="tag tag-category">${catLabel}</span>
+                    <span class="tag tag-vendor">${doc.vendor}</span>
+                </div>
+                <div style="font-size: 13px; color: var(--text-light); line-height: 1.5;">
+                    <b>เนื้อสัตว์ที่เลือก:</b> ${meatText}<br>
+                    <b>ผักที่เลือก:</b> ${vegText}
+                </div>
+                <button class="btn-delete" onclick="deleteMenu('${doc.id}')">🗑️ ลบรายการนี้</button>
+            `;
+            grid.appendChild(card);
+        });
+    }
+
+    window.spinWheel = function() {
+        if (window.filteredMenus.length === 0) return alert("ไม่มีเมนูให้สุ่มในหมวดนี้ ลองปรับตัวกรองดูครับ!");
+
+        const spinBtn = document.getElementById('spinBtn');
+        const wheel = document.getElementById('wheel');
+        const resultDisplay = document.getElementById('spinResult');
+        
+        spinBtn.disabled = true;
+        resultDisplay.innerText = "กำลังสุ่ม...";
+
+        const extraDegrees = Math.floor(Math.random() * 360) + (360 * 5); 
+        currentRotation += extraDegrees;
+        wheel.style.transform = `rotate(${currentRotation}deg)`;
+
+        setTimeout(() => {
+            const randomIndex = Math.floor(Math.random() * window.filteredMenus.length);
+            const selectedMenu = window.filteredMenus[randomIndex];
+            
+            resultDisplay.innerHTML = `🎉 ได้กิน: <u>${selectedMenu.name}</u><br><span style="font-size: 18px; font-weight: normal; color: var(--text-dark);">จาก ${selectedMenu.vendor}</span>`;
+            
+            spinBtn.disabled = false;
+        }, 3000);
+    }
+
+    // รันการจัดฟอร์มตอนโหลดหน้าเว็บ
+    window.toggleVendorForm();
+</script>
+
+</body>
+</html>
