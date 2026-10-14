@@ -6,14 +6,11 @@
     <title>Lunch Picker - เที่ยงนี้กินอะไรดี?</title>
     <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap" rel="stylesheet">
     
-    <!-- สคริปต์ Firebase SDK -->
+    <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        // ==========================================
-        // นำ firebaseConfig ของคุณมาใส่ตรงนี้
-        // ==========================================
         const firebaseConfig = {
             apiKey: "AIzaSyAhPLZbggnJqyIkOgu765S2btiRaHiiSPo",
   authDomain: "lunch-picker-app-2fa4f.firebaseapp.com",
@@ -71,7 +68,7 @@
     <style>
         :root { --primary: #ff6b81; --secondary: #ffa502; --vendor-color: #1e90ff; --bg-color: #f4f7fe; --card-bg: #ffffff; --text-dark: #2f3542; --text-light: #747d8c; }
         body { font-family: 'Kanit', sans-serif;
-        background-image: linear-gradient(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.7)), url('foodbg.PNG');
+        background-image: linear-gradient(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.7)), url('foodbg.png');
     background-size: cover;       /* ขยายรูปให้เต็มพอดีหน้าจอ */
     background-position: center;  /* จัดให้อยู่กึ่งกลาง */
     background-attachment: fixed; /* ล็อกรูปไว้ไม่ให้เลื่อนตามเวลาเราเลื่อนดูเมนู */
