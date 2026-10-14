@@ -71,11 +71,11 @@
     <style>
         :root { --primary: #ff6b81; --secondary: #ffa502; --vendor-color: #1e90ff; --bg-color: #f4f7fe; --card-bg: #ffffff; --text-dark: #2f3542; --text-light: #747d8c; }
         body { font-family: 'Kanit', sans-serif;
-        background-image: linear-gradient(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.7)), url('foodbg.png');
-    background-size: cover;       
-    background-position: center;  
-    background-attachment: fixed; 
-    background-repeat: no-repeat; 
+        background-image: linear-gradient(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.7)), url('foodbg.PNG');
+    background-size: cover;       /* ขยายรูปให้เต็มพอดีหน้าจอ */
+    background-position: center;  /* จัดให้อยู่กึ่งกลาง */
+    background-attachment: fixed; /* ล็อกรูปไว้ไม่ให้เลื่อนตามเวลาเราเลื่อนดูเมนู */
+    background-repeat: no-repeat; /* ไม่ให้รูปต่อกันเป็นแผ่นกระเบื้อง */
         background-color: var(--bg-color); color: var(--text-dark); margin: 0; padding: 20px; display: flex; justify-content: center; }
         .container { max-width: 850px; width: 100%; }
         h1 { text-align: center; font-weight: 600; color: var(--text-dark); margin-bottom: 30px; }
@@ -165,7 +165,7 @@
                     <label for="vendorFilter" style="font-weight: 500;">เลือกร้าน:</label>
                     <select id="vendorFilter" onchange="updateMenu()" style="max-width: 250px;">
                         <option value="all">ทุกร้านในหมวดนี้</option>
-                        <option value="ร้านป้าสมทรง">ร้านป้าสมทรง</option>
+                        <option value="ร้านปักษ์ใต้">ร้านปักษ์ใต้</option>
                         <option value="ร้านลุงหนวด">ร้านลุงหนวด</option>
                         <option value="ร้านข้าวแกงแม่มะลิ">ร้านข้าวแกงแม่มะลิ</option>
                     </select>
@@ -201,7 +201,7 @@
                 <div style="margin-bottom: 20px;">
                     <label style="display: block; margin-bottom: 5px; font-weight: 500;">เลือกร้านของคุณ:</label>
                     <select id="newVendorName" required>
-                        <option value="ร้านป้าสมทรง">ร้านป้าสมทรง</option>
+                        <option value="ร้านปักษ์ใต้">ร้านปักษ์ใต้</option>
                         <option value="ร้านลุงหนวด">ร้านลุงหนวด</option>
                         <option value="ร้านข้าวแกงแม่มะลิ">ร้านข้าวแกงแม่มะลิ</option>
                     </select>
